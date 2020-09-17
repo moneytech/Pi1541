@@ -1,6 +1,5 @@
 #include "interrupt.h"
 #include "rpiHardware.h"
-#include "bcm2835int.h"
 
 #define ARM_IC_IRQ_PENDING(irq)	(  (irq) < ARM_IRQ2_BASE	\
 				 ? ARM_IC_IRQ_PENDING_1		\
@@ -40,16 +39,21 @@ void InterruptSystemInitialize()
 	write32(ARM_IC_IRQ_PENDING_2, read32(ARM_IC_IRQ_PENDING_2));
 
 	DataMemBarrier();
-
+#ifdef EXPERIMENTALZERO
+	DisableInterrupts();
+#else
 	EnableInterrupts();
+#endif
 }
 
 void InterruptSystemConnectIRQ(unsigned IRQIndex, IRQHandler* handler, void* param)
 {
+#ifndef EXPERIMENTALZERO
 	IRQHandlers[IRQIndex] = handler;
 	Params[IRQIndex] = param;
 
 	InterruptSystemEnableIRQ(IRQIndex);
+#endif
 }
 
 void InterruptSystemDisconnectIRQ(unsigned IRQIndex)
@@ -62,10 +66,12 @@ void InterruptSystemDisconnectIRQ(unsigned IRQIndex)
 
 void InterruptSystemEnableIRQ(unsigned IRQIndex)
 {
-	//DEBUG_LOG("InterruptSystemEnableIRQ %d\r\n", IRQIndex);
+#ifndef EXPERIMENTALZERO
+	DEBUG_LOG("InterruptSystemEnableIRQ %d\r\n", IRQIndex);
 	DataMemBarrier();
 	write32(ARM_IC_IRQS_ENABLE(IRQIndex), ARM_IRQ_MASK(IRQIndex));
 	DataMemBarrier();
+#endif
 }
 
 void InterruptSystemDisableIRQ(unsigned IRQIndex)
@@ -111,11 +117,13 @@ void InterruptHandler(void)
 
 		if (pendValue & IRQIndexMask)
 		{
+#ifndef EXPERIMENTALZERO
 			IRQHandler* pHandler = IRQHandlers[IRQIndex];
 
 			if (pHandler != 0)
 				(*pHandler)(Params[IRQIndex]);
 			else
+#endif
 				InterruptSystemDisableIRQ(IRQIndex);
 		}
 	}
@@ -128,11 +136,13 @@ void InterruptHandler(void)
 
 		if (pendValue & IRQIndexMask)
 		{
+#ifndef EXPERIMENTALZERO
 			IRQHandler* pHandler = IRQHandlers[IRQIndex];
 
 			if (pHandler != 0)
 				(*pHandler)(Params[IRQIndex]);
 			else
+#endif
 				InterruptSystemDisableIRQ(IRQIndex);
 		}
 	}
@@ -145,11 +155,13 @@ void InterruptHandler(void)
 
 		if (pendValue & IRQIndexMask)
 		{
+#ifndef EXPERIMENTALZERO
 			IRQHandler* pHandler = IRQHandlers[IRQIndex];
 
 			if (pHandler != 0)
 				(*pHandler)(Params[IRQIndex]);
 			else
+#endif
 				InterruptSystemDisableIRQ(IRQIndex);
 		}
 	}

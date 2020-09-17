@@ -22,6 +22,7 @@
 #include "iec_bus.h"
 #include "ff.h"
 #include "debug.h"
+#include "DiskImage.h"
 
 struct TimerMicroSeconds
 {
@@ -62,6 +63,7 @@ public:
 		POP_TO_ROOT,
 		REFRESH,
 		DEVICEID_CHANGED,
+		DEVICE_SWITCHED,
 		RESET
 	};
 
@@ -71,6 +73,8 @@ public:
 	void SetDeviceId(u8 id) { deviceID = id; }
 	u8 GetDeviceId() { return deviceID; }
 
+	void SetLowercaseBrowseModeFilenames(bool value) { lowercaseBrowseModeFilenames = value; }
+	void SetNewDiskType(DiskImage::DiskType type) { newDiskType = type; }
 	void SetAutoBootFB128(bool autoBootFB128) { this->autoBootFB128 = autoBootFB128; }
 	void Set128BootSectorName(const char* SectorName) 
 	{
@@ -88,7 +92,9 @@ public:
 	const FILINFO* GetImageSelected() const { return &filInfoSelectedImage; }
 	void SetStarFileName(const char* fileName) { starFileName = fileName; }
 
-	int CreateD64(char* filenameNew, char* ID, bool automount);
+	int CreateNewDisk(char* filenameNew, char* ID, bool automount);
+
+	void SetDisplayingDevices(bool displayingDevices) { this->displayingDevices = displayingDevices; }
 
 protected:
 	enum ATNSequence 
@@ -109,15 +115,16 @@ protected:
 
 	struct Channel
 	{
-		FILINFO filInfo;
-		FIL file;
-		bool writing;
-		u32 cursor;
-		u32 bytesSent;
-		bool open;
-
 		u8 buffer[0x1000];
 		u8 command[0x100];
+
+		FILINFO filInfo;
+		FIL file;
+		u32 cursor;
+		u32 bytesSent;
+		u32 open : 1;
+		u32 writing : 1;
+		u32 fileSize;
 
 		void Close();
 		bool WriteFull() const { return cursor >= sizeof(buffer); }
@@ -153,13 +160,19 @@ protected:
 	void New(void);
 	void Rename(void);
 	void Scratch(void);
+	void ChangeDevice(void);
 
 	void Memory(void);
 	void User(void);
+	void Extended(void);
 
 	void ProcessCommand(void);
 
 	bool SendBuffer(Channel& channel, bool eoi);
+
+	u8 GetFilenameCharacter(u8 value);
+
+	int WriteNewDiskInRAM(char* filenameNew, bool automount, unsigned length);
 
 	UpdateAction updateAction;
 	u8 commandCode;
@@ -182,6 +195,10 @@ protected:
 
 	const char* starFileName;
 	const char* C128BootSectorName;
+
+	bool displayingDevices;
+	bool lowercaseBrowseModeFilenames;
+	DiskImage::DiskType newDiskType;
 };
 #endif
 

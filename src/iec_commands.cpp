@@ -29,6 +29,7 @@
 #include "DiskImage.h"
 #include "Petscii.h"
 #include "FileBrowser.h"
+#include "DiskImage.h"
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -48,6 +49,10 @@ extern unsigned versionMajor;
 extern unsigned versionMinor;
 
 extern void Reboot_Pi();
+
+extern void SwitchDrive(const char* drive);
+extern int numberOfUSBMassStorageDevices;
+extern void DisplayMessage(int x, int y, bool LCD, const char* message, u32 textColour, u32 backgroundColour);
 
 #define WaitWhile(checkStatus) \
 	do\
@@ -87,29 +92,6 @@ static const u8 filetypes[] = {
 	'R', 'E', 'L', // 4
 	'C', 'B', 'M', // 5
 	'D', 'I', 'R', // 6
-};
-
-#define DISKNAME_OFFSET_IN_DIR_BLOCK 144
-#define DISKID_OFFSET_IN_DIR_BLOCK 162
-static u8 blankD64DIRBAM[] =
-{
-	0x12, 0x01, 0x41, 0x00, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f,
-	0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f,
-	0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f,
-	0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f,
-	0x15, 0xff, 0xff, 0x1f, 0x15, 0xff, 0xff, 0x1f, 0x11, 0xfc, 0xff, 0x07, 0x13, 0xff, 0xff, 0x07,
-	0x13, 0xff, 0xff, 0x07, 0x13, 0xff, 0xff, 0x07, 0x13, 0xff, 0xff, 0x07, 0x13, 0xff, 0xff, 0x07,
-	0x13, 0xff, 0xff, 0x07, 0x12, 0xff, 0xff, 0x03, 0x12, 0xff, 0xff, 0x03, 0x12, 0xff, 0xff, 0x03,
-	0x12, 0xff, 0xff, 0x03, 0x12, 0xff, 0xff, 0x03, 0x12, 0xff, 0xff, 0x03, 0x11, 0xff, 0xff, 0x01,
-	0x11, 0xff, 0xff, 0x01, 0x11, 0xff, 0xff, 0x01, 0x11, 0xff, 0xff, 0x01, 0x11, 0xff, 0xff, 0x01,
-	0x42, 0x4c, 0x41, 0x4e, 0x4b, 0xa0, 0xa0, 0xa0, 0xa0, 0xa0, 0xa0, 0xa0, 0xa0, 0xa0, 0xa0, 0xa0,
-	0xa0, 0xa0, 0x31, 0x41, 0xa0, 0x32, 0x41, 0xa0, 0xa0, 0xa0, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	//	0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 static char ErrorMessage[64];
@@ -175,13 +157,15 @@ void Error(u8 errorCode, u8 track = 0, u8 sector = 0)
 	switch (errorCode)
 	{
 		case ERROR_00_OK:
-			msg = "OK";
+			msg = " OK";
 		break;
 		case ERROR_25_WRITE_ERROR:
 			msg = "WRITE ERROR";
 		break;
 		case ERROR_73_DOSVERSION:
-			msg = "PI1541";
+			sprintf(ErrorMessage, "%02d,PI1541 V%02d.%02d,%02d,%02d", errorCode,
+						versionMajor, versionMinor, track, sector);
+			return;
 		break;
 		case ERROR_30_SYNTAX_ERROR:
 		case ERROR_31_SYNTAX_ERROR:
@@ -203,7 +187,7 @@ void Error(u8 errorCode, u8 track = 0, u8 sector = 0)
 			DEBUG_LOG("EC=%d?\r\n", errorCode);
 		break;
 	}
-	sprintf(ErrorMessage, "%02d, %s, %02d, %02d", errorCode, msg, track, sector);
+	sprintf(ErrorMessage, "%02d,%s,%02d,%02d", errorCode, msg, track, sector);
 }
 
 static inline bool IsDirectory(FILINFO& filInfo)
@@ -237,6 +221,9 @@ IEC_Commands::IEC_Commands()
 	Reset();
 	starFileName = 0;
 	C128BootSectorName = 0;
+	displayingDevices = false;
+	lowercaseBrowseModeFilenames = false;
+	newDiskType = DiskImage::D64;
 }
 
 void IEC_Commands::Reset(void)
@@ -445,6 +432,9 @@ IEC_Commands::UpdateAction IEC_Commands::SimulateIECUpdate(void)
 	}
 
 	updateAction = NONE;
+
+	if (selectedImageName[0] != 0) updateAction = IMAGE_SELECTED;
+
 	switch (atnSequence)
 	{
 		case ATN_SEQUENCE_IDLE:
@@ -653,7 +643,7 @@ static const char* ParseName(const char* text, char* name, bool convert, bool in
 	const char* ptr = text;
 	*name = 0;
 
-	if (isspace(*ptr) || *ptr == ',' || *ptr == '=' || *ptr == ':')
+	if (isspace(*ptr & 0x7f) || *ptr == ',' || *ptr == '=' || *ptr == ':')
 	{
 		ptr++;
 	}
@@ -661,7 +651,7 @@ static const char* ParseName(const char* text, char* name, bool convert, bool in
 	// TODO: Should not do this - should use command length to test for the end of a command (use indicies instead of pointers?)
 	while (*ptr != '\0')
 	{
-		if (!isspace(*ptr))
+		if (!isspace(*ptr & 0x7f))
 			break;
 		ptr++;
 	}
@@ -669,7 +659,7 @@ static const char* ParseName(const char* text, char* name, bool convert, bool in
 	{
 		while (*ptr != '\0')
 		{
-			if ((!includeSpace && isspace(*ptr)) || *ptr == ',' || *ptr == '=' || *ptr == ':')
+			if ((!includeSpace && isspace(*ptr & 0x7f)) || *ptr == ',' || *ptr == '=' || *ptr == ':')
 				break;
 			if (convert) *ptrOut++ = petscii2ascii(*ptr++);
 			else *ptrOut++ = *ptr++;
@@ -737,10 +727,9 @@ static int ParsePartition(char** buf)
 {
 	int part = 0;
 
-	// Capital letters coming from sidplay64-sd2iec have the high bit set. Was confusing isdigit!
-	while ((isdigit(**buf) && !(**buf & 0x80)) || **buf == ' ' || **buf == '@')
+	while ((isdigit(**buf & 0x7f)) || **buf == ' ' || **buf == '@')
 	{
-		if (isdigit(**buf))	part = part * 10 + (**buf - '0');
+		if (isdigit(**buf & 0x7f))	part = part * 10 + (**buf - '0');
 		(*buf)++;
 	}
 	return 0;
@@ -771,102 +760,129 @@ void IEC_Commands::CD(int partition, char* filename)
 	}
 	else
 	{
-		DIR dir;
-		FILINFO filInfo;
-
-		char path[256] = { 0 };
-		char* pattern = strrchr(filenameEdited, '\\');
-
-		if (pattern)
+		if (displayingDevices)
 		{
-			// Now we look for a folder
-			int len = pattern - filenameEdited;
-			strncpy(path, filenameEdited, len);
-
-			pattern++;
-
-			if ((f_stat(path, &filInfo) != FR_OK) || !IsDirectory(filInfo))
+			if (strncmp(filename, "SD", 2) == 0)
 			{
-				Error(ERROR_62_FILE_NOT_FOUND);
+				SwitchDrive("SD:");
+				displayingDevices = false;
+				updateAction = DEVICE_SWITCHED;
 			}
 			else
 			{
-				char cwd[1024];
-				if (f_getcwd(cwd, 1024) == FR_OK)
+				for (int USBDriveIndex = 0; USBDriveIndex < numberOfUSBMassStorageDevices; ++USBDriveIndex)
 				{
-					f_chdir(path);
+					char USBDriveId[16];
+					sprintf(USBDriveId, "USB%02d:", USBDriveIndex + 1);
 
-					char cwd2[1024];
-					f_getcwd(cwd2, 1024);
-
-					bool found = f_findfirst(&dir, &filInfo, ".", pattern) == FR_OK && filInfo.fname[0] != 0;
-
-					//DEBUG_LOG("%s pattern = %s\r\n", filInfo.fname, pattern);
-
-					if (found)
+					if (strncmp(filename, USBDriveId, 5) == 0)
 					{
-						if (DiskImage::IsDiskImageExtention(filInfo.fname))
-						{
-							if (f_stat(filInfo.fname, &filInfoSelectedImage) == FR_OK)
-							{
-								strcpy((char*)selectedImageName, filInfo.fname);
-							}
-							else
-							{
-								f_chdir(cwd);
-								Error(ERROR_62_FILE_NOT_FOUND);
-							}
-						}
-						else
-						{
-							//DEBUG_LOG("attemting changing dir %s\r\n", filInfo.fname);
-							if (f_chdir(filInfo.fname) != FR_OK)
-							{
-								Error(ERROR_62_FILE_NOT_FOUND);
-								f_chdir(cwd);
-							}
-							else
-							{
-								updateAction = DIR_PUSHED;
-							}
-						}
+						SwitchDrive(USBDriveId);
+						displayingDevices = false;
+						updateAction = DEVICE_SWITCHED;
 					}
-					else
-					{
-						Error(ERROR_62_FILE_NOT_FOUND);
-						f_chdir(cwd);
-					}
-
 				}
-				//if (f_getcwd(cwd, 1024) == FR_OK)
-				//	DEBUG_LOG("CWD on exit = %s\r\n", cwd);
 			}
 		}
 		else
 		{
-			bool found = FindFirst(dir, filenameEdited, filInfo);
+			DIR dir;
+			FILINFO filInfo;
 
-			if (found)
+			char path[256] = { 0 };
+			char* pattern = strrchr(filenameEdited, '\\');
+
+			if (pattern)
 			{
-				if (DiskImage::IsDiskImageExtention(filInfo.fname))
+				// Now we look for a folder
+				int len = pattern - filenameEdited;
+				strncpy(path, filenameEdited, len);
+
+				pattern++;
+
+				if ((f_stat(path, &filInfo) != FR_OK) || !IsDirectory(filInfo))
 				{
-					if (f_stat(filInfo.fname, &filInfoSelectedImage) == FR_OK)
-						strcpy((char*)selectedImageName, filInfo.fname);
-					else
-						Error(ERROR_62_FILE_NOT_FOUND);
+					Error(ERROR_62_FILE_NOT_FOUND);
 				}
 				else
 				{
-					//DEBUG_LOG("attemting changing dir %s\r\n", filInfo.fname);
-					if (f_chdir(filInfo.fname) != FR_OK)
-						Error(ERROR_62_FILE_NOT_FOUND);
-					else
-						updateAction = DIR_PUSHED;
+					char cwd[1024];
+					if (f_getcwd(cwd, 1024) == FR_OK)
+					{
+						f_chdir(path);
+
+						char cwd2[1024];
+						f_getcwd(cwd2, 1024);
+
+						bool found = f_findfirst(&dir, &filInfo, ".", pattern) == FR_OK && filInfo.fname[0] != 0;
+
+						//DEBUG_LOG("%s pattern = %s\r\n", filInfo.fname, pattern);
+
+						if (found)
+						{
+							if (DiskImage::IsDiskImageExtention(filInfo.fname))
+							{
+								if (f_stat(filInfo.fname, &filInfoSelectedImage) == FR_OK)
+								{
+									strcpy((char*)selectedImageName, filInfo.fname);
+								}
+								else
+								{
+									f_chdir(cwd);
+									Error(ERROR_62_FILE_NOT_FOUND);
+								}
+							}
+							else
+							{
+								//DEBUG_LOG("attemting changing dir %s\r\n", filInfo.fname);
+								if (f_chdir(filInfo.fname) != FR_OK)
+								{
+									Error(ERROR_62_FILE_NOT_FOUND);
+									f_chdir(cwd);
+								}
+								else
+								{
+									updateAction = DIR_PUSHED;
+								}
+							}
+						}
+						else
+						{
+							Error(ERROR_62_FILE_NOT_FOUND);
+							f_chdir(cwd);
+						}
+
+					}
+					//if (f_getcwd(cwd, 1024) == FR_OK)
+					//	DEBUG_LOG("CWD on exit = %s\r\n", cwd);
 				}
 			}
 			else
 			{
-				Error(ERROR_62_FILE_NOT_FOUND);
+				bool found = FindFirst(dir, filenameEdited, filInfo);
+
+				if (found)
+				{
+					if (DiskImage::IsDiskImageExtention(filInfo.fname))
+					{
+						if (f_stat(filInfo.fname, &filInfoSelectedImage) == FR_OK)
+							strcpy((char*)selectedImageName, filInfo.fname);
+						else
+							Error(ERROR_62_FILE_NOT_FOUND);
+					}
+					else
+					{
+						//DEBUG_LOG("attemting changing dir %s\r\n", filInfo.fname);
+						if (f_chdir(filInfo.fname) != FR_OK)
+							Error(ERROR_62_FILE_NOT_FOUND);
+						else
+							updateAction = DIR_PUSHED;
+					}
+				}
+				else
+				{
+					Error(ERROR_62_FILE_NOT_FOUND);
+				}
 			}
 		}
 	}
@@ -1041,6 +1057,41 @@ void IEC_Commands::Copy(void)
 		Error(ERROR_34_SYNTAX_ERROR);
 	}
 }
+
+void IEC_Commands::ChangeDevice(void)
+{
+	Channel& channel = channels[15];
+	const char* text = (char*)channel.buffer;
+
+	if (strlen(text) > 2)
+	{
+		int deviceIndex = atoi(text + 2);
+
+		if (deviceIndex == 0)
+		{
+			SwitchDrive("SD:");
+			displayingDevices = false;
+			updateAction = DEVICE_SWITCHED;
+		}
+		else if ((deviceIndex - 1) < numberOfUSBMassStorageDevices)
+		{
+			char USBDriveId[16];
+			sprintf(USBDriveId, "USB%02d:", deviceIndex);
+			SwitchDrive(USBDriveId);
+			displayingDevices = false;
+			updateAction = DEVICE_SWITCHED;
+		}
+		else
+		{
+			Error(ERROR_74_DRlVE_NOT_READY);
+		}
+	}
+	else
+	{
+		Error(ERROR_31_SYNTAX_ERROR);
+	}
+}
+
 void IEC_Commands::Memory(void)
 {
 	Channel& channel = channels[15];
@@ -1100,7 +1151,7 @@ void IEC_Commands::New(void)
 	{
 		FILINFO filInfo;
 
-		int ret = CreateD64(filenameNew, ID, true);
+		int ret = CreateNewDisk(filenameNew, ID, true);
 
 		if (ret==0)
 			updateAction = REFRESH;
@@ -1251,6 +1302,25 @@ void IEC_Commands::User(void)
 	}
 }
 
+void IEC_Commands::Extended(void)
+{
+	Channel& channel = channels[15];
+
+	//DEBUG_LOG("User channel.buffer[1] = %c\r\n", channel.buffer[1]);
+
+	switch (toupper(channel.buffer[1]))
+	{
+		case '?':
+			Error(ERROR_73_DOSVERSION);
+		break;
+		default:
+			// Extended commands not implemented yet
+			Error(ERROR_31_SYNTAX_ERROR);
+		break;
+	}
+}
+
+// http://www.n2dvm.com/UIEC.pdf
 void IEC_Commands::ProcessCommand(void)
 {
 	Error(ERROR_00_OK);
@@ -1287,7 +1357,7 @@ void IEC_Commands::ProcessCommand(void)
 			break;
 			case 'C':
 				if (channel.buffer[1] == 'P')
-					Error(ERROR_31_SYNTAX_ERROR);	// Change Partition not implemented yet
+					ChangeDevice();
 				else
 					Copy();
 			break;
@@ -1335,8 +1405,10 @@ void IEC_Commands::ProcessCommand(void)
 				//OPEN1, 9, 15, "XW":CLOSE1
 			break;
 			case 'X':
-				// Extended commands not implemented yet
-				Error(ERROR_31_SYNTAX_ERROR);
+				Extended();
+			break;
+			case '/':
+				
 			break;
 			default:
 				Error(ERROR_31_SYNTAX_ERROR);
@@ -1415,11 +1487,12 @@ bool IEC_Commands::FindFirst(DIR& dir, const char* matchstr, FILINFO& filInfo)
 	// This basically changes a file name from something like
 	// SOMELONGDISKIMAGENAME.D64 to SOMELONGDISKIMAGENAME*.D64
 	// so the actual SOMELONGDISKIMAGENAMETHATISWAYTOOLONGFORCBMFILEBROWSERTODISPLAY.D64 will be found.
+	bool diskImage = DiskImage::IsDiskImageExtention(matchstr);
 	strcpy(pattern, matchstr);
-	if (strlen(pattern) > 12)
+	if (strlen(pattern) > CBM_NAME_LENGTH_MINUS_D64)
 	{
 		char* ext = strrchr(matchstr, '.');
-		if (ext)
+		if (ext && diskImage)
 		{
 			char* ptr = strrchr(pattern, '.');
 			*ptr++ = '*';
@@ -1455,7 +1528,7 @@ bool IEC_Commands::SendBuffer(Channel& channel, bool eoi)
 {
 	for (u32 i = 0; i < channel.cursor; ++i)
 	{
-		u8 finalbyte = eoi && (channel.bytesSent == (channel.filInfo.fsize - 1));
+		u8 finalbyte = eoi && (channel.bytesSent == (channel.fileSize - 1));
 		if (WriteIECSerialPort(channel.buffer[i], finalbyte))
 		{
 			return true;
@@ -1474,14 +1547,96 @@ void IEC_Commands::LoadFile()
 
 	if (channel.filInfo.fname[0] != 0)
 	{
+		FSIZE_t size = f_size(&channel.file);
+		FSIZE_t sizeRemaining = size;
 		u32 bytesRead;
+		channel.fileSize = (u32)channel.filInfo.fsize;
+
+		char* ext = strrchr((char*)channel.filInfo.fname, '.');
+		if (toupper((char)ext[1]) == 'P' && isdigit(ext[2]) && isdigit(ext[3]))
+		{
+			bool validP00 = false;
+
+			f_read(&channel.file, channel.buffer, 26, &bytesRead);
+			if (bytesRead > 0)
+			{
+				if (strncmp((const char*)channel.buffer, "C64File", 7) == 0)
+				{
+					validP00 = channel.buffer[0x19] == 0;
+					sizeRemaining -= bytesRead;
+					channel.bytesSent += bytesRead;
+				}
+
+				if (!validP00)
+					f_lseek(&channel.file, 0);
+			}
+		}
+		else if (toupper((char)ext[1]) == 'T' && ext[2] == '6' && ext[3] == '4')
+		{
+			bool validT64 = false;
+
+			f_read(&channel.file, channel.buffer, sizeof(channel.buffer), &bytesRead);
+
+			if (bytesRead > 0)
+			{
+				if ((memcmp(channel.buffer, "C64 tape image file", 20) == 0) || (memcmp(channel.buffer, "C64s tape image file", 21) == 0))
+				{
+					DEBUG_LOG("T64\r\n");
+					u16 version = channel.buffer[0x20] | (channel.buffer[0x21] << 8);
+					u16 entries = channel.buffer[0x22] | (channel.buffer[0x23] << 8);
+					u16 entriesUsed = channel.buffer[0x24] | (channel.buffer[0x25] << 8);
+					char name[25] = { 0 };
+					strncpy(name, (const char*)(channel.buffer + 0x28), 24);
+
+					DEBUG_LOG("%x %d %d %s\r\n", version, entries, entriesUsed, name);
+
+					u16 entryIndex;
+
+					for (entryIndex = 0; entryIndex < entriesUsed; ++entryIndex)
+					{
+						char nameEntry[17] = { 0 };
+						int offset = 0x40 + entryIndex * 32;
+						u8 type = channel.buffer[offset];
+						u8 fileType = channel.buffer[offset + 1];
+						u16 startAddress = channel.buffer[offset + 2] | (channel.buffer[offset + 3] << 8);
+						u16 endAddress = channel.buffer[offset + 4] | (channel.buffer[offset + 5] << 8);
+						u32 fileOffset = channel.buffer[offset + 8] | (channel.buffer[offset + 9] << 8) | (channel.buffer[offset + 10] << 16) | (channel.buffer[offset + 11] << 24);
+						strncpy(nameEntry, (const char*)(channel.buffer + offset + 0x10), 16);
+
+						DEBUG_LOG("%d %02x %04x %04x %0x8 %s\r\n", type, fileType, startAddress, endAddress, fileOffset, nameEntry);
+
+						channel.bytesSent = 0;
+						channel.buffer[0] = startAddress & 0xff;
+						channel.buffer[1] = (startAddress >> 8) & 0xff;
+	
+						validT64 = true;
+						sizeRemaining = endAddress - startAddress;
+						channel.fileSize = sizeRemaining + 2;
+						channel.bytesSent = 0;
+						channel.cursor = 2;
+
+						SendBuffer(channel, false);
+
+						f_lseek(&channel.file, fileOffset);
+
+						break; // For now only load the first file.
+					}
+				}
+
+				if (!validT64)
+					f_lseek(&channel.file, 0);
+			}
+		}
+
 		do
 		{
 			f_read(&channel.file, channel.buffer, sizeof(channel.buffer), &bytesRead);
 			if (bytesRead > 0)
 			{
+				//DEBUG_LOG("%d %d %d\r\n", (int)size, bytesRead, (int)sizeRemaining);
+				sizeRemaining -= bytesRead;
 				channel.cursor = bytesRead;
-				if (SendBuffer(channel, true))
+				if (SendBuffer(channel, sizeRemaining <= 0))
 					return;
 			}
 		}
@@ -1530,6 +1685,14 @@ void IEC_Commands::SendError()
 	while (!finalByte);
 }
 
+u8 IEC_Commands::GetFilenameCharacter(u8 value)
+{
+	if (lowercaseBrowseModeFilenames)
+		value = tolower(value);
+
+	return ascii2petscii(value);
+}
+
 void IEC_Commands::AddDirectoryEntry(Channel& channel, const char* name, u16 blocks, int fileType)
 {
 	u8* data = channel.buffer + channel.cursor;
@@ -1568,20 +1731,20 @@ void IEC_Commands::AddDirectoryEntry(Channel& channel, const char* name, u16 blo
 
 		do
 		{
-			data[index + i++] = ascii2petscii(*name++);
+			data[index + i++] = GetFilenameCharacter(*name++);
 		}
 		while (!(*name == 0x22 || *name == 0 || i == CBM_NAME_LENGTH_MINUS_D64));
 
 		for (int extIndex = 0; extIndex < 4; ++extIndex)
 		{
-			data[index + i++] = ascii2petscii(*extName++);
+			data[index + i++] = GetFilenameCharacter(*extName++);
 		}
 	}
 	else
 	{
 		do
 		{
-			data[index + i++] = ascii2petscii(*name++);
+			data[index + i++] = GetFilenameCharacter(*name++);
 		}
 		while (!(*name == 0x22 || *name == 0 || i == CBM_NAME_LENGTH));
 	}
@@ -1629,19 +1792,26 @@ void IEC_Commands::LoadDirectory()
 	FileBrowser::BrowsableList::Entry entry;
 	std::vector<FileBrowser::BrowsableList::Entry> entries;
 
-	res = f_opendir(&dir, ".");
-	if (res == FR_OK)
+	if (displayingDevices)
 	{
-		do
+		FileBrowser::RefreshDevicesEntries(entries, true);
+	}
+	else
+	{
+		res = f_opendir(&dir, ".");
+		if (res == FR_OK)
 		{
-			res = f_readdir(&dir, &entry.filImage);
-			ext = strrchr(entry.filImage.fname, '.');
-			if (res == FR_OK && entry.filImage.fname[0] != 0 && !(ext && strcasecmp(ext, ".png") == 0))
-				entries.push_back(entry);
-		} while (res == FR_OK && entry.filImage.fname[0] != 0);
-		f_closedir(&dir);
+			do
+			{
+				res = f_readdir(&dir, &entry.filImage);
+				ext = strrchr(entry.filImage.fname, '.');
+				if (res == FR_OK && entry.filImage.fname[0] != 0 && !(ext && strcasecmp(ext, ".png") == 0) && (entry.filImage.fname[0] != '.'))
+					entries.push_back(entry);
+			} while (res == FR_OK && entry.filImage.fname[0] != 0);
+			f_closedir(&dir);
 
-		std::sort(entries.begin(), entries.end(), greater());
+			std::sort(entries.begin(), entries.end(), greater());
+		}
 	}
 
 	for (u32 i = 0; i < entries.size(); ++i)
@@ -1689,6 +1859,7 @@ void IEC_Commands::LoadDirectory()
 	channel.cursor = sizeof(DirectoryBlocksFree);
 	
 	channel.filInfo.fsize = channel.bytesSent + channel.cursor;
+	channel.fileSize = (u32)channel.filInfo.fsize;
 	SendBuffer(channel, true);
 }
 
@@ -1773,6 +1944,7 @@ void IEC_Commands::OpenFile()
 				channel.buffer[index++] = '2';
 				channel.buffer[index++] = '8';
 				channel.buffer[index++] = '\"';
+				channel.fileSize = 256;
 			}
 			if (C128BootSectorName)
 			{
@@ -1782,6 +1954,7 @@ void IEC_Commands::OpenFile()
 					f_read(&fpBS, channel.buffer, 256, &bytes);
 				else
 					memset(channel.buffer, 0, 256);
+				channel.fileSize = 256;
 			}
 
 			if (SendBuffer(channel, true))
@@ -1822,6 +1995,8 @@ void IEC_Commands::OpenFile()
 			}
 			if (*in == ':')
 				in++;
+			else
+				in = (char*)channel.command;
 
 			text = ParseName((char*)in, filename, true, true);
 			if (text)
@@ -1836,10 +2011,13 @@ void IEC_Commands::OpenFile()
 				char cwd[1024];
 				if (f_getcwd(cwd, 1024) == FR_OK)
 				{
-					if (strcasecmp(cwd, "/1541") == 0)
+					const char* folder = strstr(cwd, "/");
+					if (folder)
 					{
-						//DEBUG_LOG("use star %s\r\n", starFileName);
-						strncpy(filename, starFileName, sizeof(filename) - 1);
+						if (strcasecmp(folder, "/1541") == 0)
+						{
+							strncpy(filename, starFileName, sizeof(filename) - 1);
+						}
 					}
 				}
 			}
@@ -1937,63 +2115,58 @@ void IEC_Commands::CloseFile(u8 secondary)
 	channel.Close();
 }
 
-int IEC_Commands::CreateD64(char* filenameNew, char* ID, bool automount)
+int IEC_Commands::CreateNewDisk(char* filenameNew, char* ID, bool automount)
+{
+	DisplayMessage(240, 280, false, "Creating new disk", RGBA(0xff, 0xff, 0xff, 0xff), RGBA(0xff, 0, 0, 0xff));
+	DisplayMessage(0, 0, true, "Creating new disk", RGBA(0xff, 0xff, 0xff, 0xff), RGBA(0xff, 0, 0, 0xff));
+
+	switch (newDiskType)
+	{
+		case DiskImage::D64:
+			if (!(strstr(filenameNew, ".d64") || strstr(filenameNew, ".D64")))
+				strcat(filenameNew, ".d64");
+		break;
+		case DiskImage::G64:
+			if (!(strstr(filenameNew, ".g64") || strstr(filenameNew, ".G64")))
+				strcat(filenameNew, ".g64");
+		break;
+		default:
+			return ERROR_25_WRITE_ERROR;
+		break;
+	}
+
+	unsigned length = DiskImage::CreateNewDiskInRAM(filenameNew, ID);
+
+	return WriteNewDiskInRAM(filenameNew, automount, length);
+}
+
+
+int IEC_Commands::WriteNewDiskInRAM(char* filenameNew, bool automount, unsigned length)
 {
 	FILINFO filInfo;
 	FRESULT res;
-	char* ptr;
-	int i;
-	//bool g64 = false;
-
-	//if (strstr(filenameNew, ".g64") || strstr(filenameNew, ".G64"))
-	//	g64 = true;
-	//else
-	if(!(strstr(filenameNew, ".d64") || strstr(filenameNew, ".D64")))
-		strcat(filenameNew, ".d64");
 
 	res = f_stat(filenameNew, &filInfo);
 	if (res == FR_NO_FILE)
 	{
-		FIL fpOut;
-		res = f_open(&fpOut, filenameNew, FA_CREATE_ALWAYS | FA_WRITE);
-		if (res == FR_OK)
-		{
-			char buffer[256];
-			u32 bytes;
-			u32 blocks;
+		DiskImage diskImage;
+		diskImage.OpenD64((const FILINFO*)0, (unsigned char*)DiskImage::readBuffer, length);
 
-			memset(buffer, 0, sizeof(buffer));
-			// TODO: Should check for disk full.
-			for (blocks = 0; blocks < 357; ++blocks)
-			{
-				if (f_write(&fpOut, buffer, 256, &bytes) != FR_OK)
-					break;
-			}
-			ptr = (char*)&blankD64DIRBAM[DISKNAME_OFFSET_IN_DIR_BLOCK];
-			int len = strlen(filenameNew);
-			for (i = 0; i < len; ++i)
-			{
-				*ptr++ = ascii2petscii(filenameNew[i]);
-			}
-			for (; i < 18; ++i)
-			{
-				*ptr++ = 0xa0;
-			}
-			for (i = 0; i < 2; ++i)
-			{
-				*ptr++ = ascii2petscii(ID[i]);
-			}
-			f_write(&fpOut, blankD64DIRBAM, 256, &bytes);
-			buffer[1] = 0xff;
-			f_write(&fpOut, buffer, 256, &bytes);
-			buffer[1] = 0;
-			for (blocks = 0; blocks < 324; ++blocks)
-			{
-				if (f_write(&fpOut, buffer, 256, &bytes) != FR_OK)
-					break;
-			}
-			f_close(&fpOut);
+		switch (newDiskType)
+		{
+			case DiskImage::D64:
+				if (!diskImage.WriteD64(filenameNew))
+					return ERROR_25_WRITE_ERROR;
+			break;
+			case DiskImage::G64:
+				if (!diskImage.WriteG64(filenameNew))
+					return ERROR_25_WRITE_ERROR;
+			break;
+			default:
+				return ERROR_25_WRITE_ERROR;
+			break;
 		}
+
 		// Mount the new disk? Shoud we do this or let them do it manually?
 		if (automount && f_stat(filenameNew, &filInfo) == FR_OK)
 		{

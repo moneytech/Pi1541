@@ -128,6 +128,7 @@ Options::Options(void)
 	, disableSD2IECCommands(0)
 	, supportUARTInput(0)
 	, graphIEC(0)
+	, displayTracks(0)
 	, quickBoot(0)
 	, showOptions(0)
 	, displayPNGIcons(0)
@@ -139,6 +140,8 @@ Options::Options(void)
 	, splitIECLines(0)
 	, ignoreReset(0)
 	, autoBootFB128(0)
+	, displayTemperature(0)
+	, lowercaseBrowseModeFilenames(0)
 	, screenWidth(1024)
 	, screenHeight(768)
 	, i2cBusMaster(1)
@@ -146,6 +149,7 @@ Options::Options(void)
 	, i2cScan(0)
 	, i2cLcdFlip(0)
 	, i2cLcdOnContrast(127)
+	, i2cLcdUseCBMChar(0)
 	, i2cLcdModel(LCD_UNKNOWN)
 	, scrollHighlightRate(0.125f)
 	, keyboardBrowseLCDScreen(0)
@@ -154,6 +158,7 @@ Options::Options(void)
         , buttonDown(3)
         , buttonBack(4)
         , buttonInsert(5)
+	, rotaryEncoderEnable(0) //ROTARY:
 
 {
 	autoMountImageName[0] = 0;
@@ -171,6 +176,7 @@ Options::Options(void)
 	ROMNameSlot7[0] = 0;
 	ROMNameSlot8[0] = 0;
 	ROMName1581[0] = 0;
+	newDiskType[0] = 0;
 }
 
 #define ELSE_CHECK_DECIMAL_OPTION(Name) \
@@ -213,6 +219,7 @@ void Options::Process(char* buffer)
 		ELSE_CHECK_DECIMAL_OPTION(disableSD2IECCommands)
 		ELSE_CHECK_DECIMAL_OPTION(supportUARTInput)
 		ELSE_CHECK_DECIMAL_OPTION(graphIEC)
+		ELSE_CHECK_DECIMAL_OPTION(displayTracks)
 		ELSE_CHECK_DECIMAL_OPTION(quickBoot)
 		ELSE_CHECK_DECIMAL_OPTION(showOptions)
 		ELSE_CHECK_DECIMAL_OPTION(displayPNGIcons)
@@ -223,7 +230,9 @@ void Options::Process(char* buffer)
 		ELSE_CHECK_DECIMAL_OPTION(invertIECOutputs)
 		ELSE_CHECK_DECIMAL_OPTION(splitIECLines)
 		ELSE_CHECK_DECIMAL_OPTION(ignoreReset)
+		ELSE_CHECK_DECIMAL_OPTION(lowercaseBrowseModeFilenames)
 		ELSE_CHECK_DECIMAL_OPTION(autoBootFB128)
+		ELSE_CHECK_DECIMAL_OPTION(displayTemperature)
 		ELSE_CHECK_DECIMAL_OPTION(screenWidth)
 		ELSE_CHECK_DECIMAL_OPTION(screenHeight)
 		ELSE_CHECK_DECIMAL_OPTION(i2cBusMaster)
@@ -233,6 +242,7 @@ void Options::Process(char* buffer)
 		ELSE_CHECK_DECIMAL_OPTION(i2cLcdOnContrast)
 		ELSE_CHECK_DECIMAL_OPTION(i2cLcdDimContrast)
 		ELSE_CHECK_DECIMAL_OPTION(i2cLcdDimTime)
+		ELSE_CHECK_DECIMAL_OPTION(i2cLcdUseCBMChar)
 		ELSE_CHECK_FLOAT_OPTION(scrollHighlightRate)
 		ELSE_CHECK_DECIMAL_OPTION(keyboardBrowseLCDScreen)
 		ELSE_CHECK_DECIMAL_OPTION(buttonEnter)
@@ -240,6 +250,7 @@ void Options::Process(char* buffer)
 		ELSE_CHECK_DECIMAL_OPTION(buttonDown)
 		ELSE_CHECK_DECIMAL_OPTION(buttonBack)
 		ELSE_CHECK_DECIMAL_OPTION(buttonInsert)
+		ELSE_CHECK_DECIMAL_OPTION(rotaryEncoderEnable) //ROTARY:
 		else if ((strcasecmp(pOption, "AutoBaseName") == 0))
 		{
 			strncpy(autoBaseName, pValue, 255);
@@ -302,6 +313,10 @@ void Options::Process(char* buffer)
 		{
 			strncpy(ROMNameSlot8, pValue, 255);
 		}
+		else if ((strcasecmp(pOption, "NewDiskType") == 0))
+		{
+			strncpy(newDiskType, pValue, 31);
+		}
 	}
 
 	if (!SplitIECLines())
@@ -352,6 +367,17 @@ const char* Options::GetRomName(int index) const
 
 const char* Options::GetRomName1581() const
 {
-	return ROMName1581;
+	if (ROMName1581[0] == 0)
+		return "1581-rom.318045-02.bin";
+	else
+		return ROMName1581;
+}
+
+DiskImage::DiskType Options::GetNewDiskType() const
+{
+	if (strcasecmp(newDiskType, "g64") == 0)
+		return DiskImage::G64;
+
+	return DiskImage::D64;
 }
 
